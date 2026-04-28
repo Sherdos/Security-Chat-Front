@@ -44,8 +44,13 @@ export function ProfilePanel({
   const targetUser = useMemo(() => {
     if (targetId == null) return null;
     if (isMe) return me;
-    return users.find((user) => user.id === targetId) ?? null;
-  }, [targetId, isMe, me, users]);
+    const found = users.find((user) => user.id === targetId);
+    if (found) return found;
+    // Fallback: construct a minimal user from the cached profile
+    const cached = userProfiles[targetId];
+    if (cached?.username) return { id: targetId, username: cached.username };
+    return null;
+  }, [targetId, isMe, me, users, userProfiles]);
 
   useEffect(() => {
     if (targetId != null && !isMe) {
@@ -204,6 +209,20 @@ export function ProfilePanel({
               )}
             </p>
           </div>
+          {profile?.created_at && (
+            <div>
+              <p className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-tg-text-muted">
+                Member since
+              </p>
+              <p className="text-sm text-tg-text">
+                {new Date(profile.created_at).toLocaleDateString(undefined, {
+                  year: "numeric",
+                  month: "long",
+                  day: "numeric",
+                })}
+              </p>
+            </div>
+          )}
         </div>
       )}
     </RightDrawer>

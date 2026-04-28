@@ -12,6 +12,7 @@ type UseChatSocketParams = {
   activeRoomTitle: string;
   tokenStore: TokenStore;
   applyIncomingMessage: (incoming: ChatMessage) => void;
+  setTypingUser: (roomKey: string, userId: number, typing: boolean) => void;
   setStatus: (value: string) => void;
   setError: (value: string) => void;
 };
@@ -25,10 +26,13 @@ export function useChatSocket({
   activeRoomTitle,
   tokenStore,
   applyIncomingMessage,
+  setTypingUser,
   setStatus,
   setError,
 }: UseChatSocketParams) {
   const wsRef = useRef<WebSocket | null>(null);
+  // Timeouts that auto-clear a typing indicator 3 s after the last event.
+  const typingTimeoutsRef = useRef<Record<string, Record<number, number>>>({});
 
   const disconnectSocket = useCallback(() => {
     if (wsRef.current) {
@@ -67,8 +71,34 @@ export function useChatSocket({
 
     socket.onmessage = (event) => {
       try {
-        const incoming = JSON.parse(event.data) as ChatMessage;
-        applyIncomingMessage(incoming);
+        const raw = JSON.parse(event.data as string) as Record<string, unknown>;
+
+        if (raw.type === "typing") {
+          const userId = raw.user_id as number;
+          const roomKey =
+            raw.chat_id != null
+              ? `direct:${raw.chat_id}`
+              : raw.topic_id != null
+                ? `topic:${raw.topic_id}`
+                : `group:${raw.group_id}`;
+
+          // Reset the auto-clear timeout for this user in this room.
+          const existing = typingTimeoutsRef.current[roomKey]?.[userId];
+          if (existing !== undefined) window.clearTimeout(existing);
+
+          setTypingUser(roomKey, userId, true);
+
+          if (!typingTimeoutsRef.current[roomKey]) {
+            typingTimeoutsRef.current[roomKey] = {};
+          }
+          typingTimeoutsRef.current[roomKey][userId] = window.setTimeout(() => {
+            setTypingUser(roomKey, userId, false);
+            delete typingTimeoutsRef.current[roomKey]?.[userId];
+          }, 3_000);
+          return;
+        }
+
+        applyIncomingMessage(raw as ChatMessage);
       } catch {
         setError("Received invalid realtime payload");
       }
@@ -90,6 +120,11 @@ export function useChatSocket({
     };
 
     return () => {
+      // Clear all pending typing timeouts when the room changes.
+      Object.values(typingTimeoutsRef.current).forEach((byUser) =>
+        Object.values(byUser).forEach((tid) => window.clearTimeout(tid)),
+      );
+      typingTimeoutsRef.current = {};
       socket.close();
     };
   }, [
@@ -101,6 +136,7 @@ export function useChatSocket({
     activeRoomTitle,
     disconnectSocket,
     applyIncomingMessage,
+    setTypingUser,
     tokenStore,
     setStatus,
     setError,

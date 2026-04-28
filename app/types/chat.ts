@@ -6,8 +6,13 @@ export type User = {
 
 export type UserProfile = {
   avatar?: string | null;
+  /** Returned by nested user objects in chat/message responses */
+  avatar_url?: string | null;
   description?: string;
   status?: string;
+  /** Populated from nested API responses */
+  username?: string;
+  created_at?: string;
 };
 
 export type Notification = {
@@ -19,6 +24,12 @@ export type Notification = {
 
 export type Chat = {
   id: number;
+  sender_user_id?: number;
+  receiver_user_id?: number;
+  created_at?: string;
+  sender_user?: UserProfile;
+  receiver_user?: UserProfile;
+  /** Legacy field, no longer returned by backend */
   participants?: User[];
 };
 
@@ -49,10 +60,9 @@ export type AttachmentKind = "image" | "video" | "audio" | "file";
 export type Attachment = {
   id: number;
   message_id?: number;
-  kind: AttachmentKind;
-  url: string;
-  filename?: string;
-  size?: number;
+  attachment_type: AttachmentKind;
+  file_url?: string;
+  file?: string;
 };
 
 export type ChatMessage = {
@@ -63,6 +73,8 @@ export type ChatMessage = {
   topic_id?: number | null;
   sender_user_id?: number;
   receiver_user_id?: number;
+  sender_user?: UserProfile;
+  receiver_user?: UserProfile;
   ciphertext: string;
   iv: string;
   created_at?: string;
@@ -78,3 +90,13 @@ export type RightPanelState = {
   kind: RightPanelKind | null;
   targetId: number | null;
 };
+
+export type PresenceEvent =
+  | { type: "presence"; user_id: number; online: boolean }
+  | {
+      type: "typing";
+      user_id: number;
+      chat_id?: number;
+      group_id?: number;
+      topic_id?: number | null;
+    };

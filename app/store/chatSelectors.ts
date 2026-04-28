@@ -59,6 +59,8 @@ export function useSidebarSlice() {
       activeTopicId: state.activeTopicId,
       notifications: state.notifications,
       setRightPanel: state.setRightPanel,
+      userProfiles: state.userProfiles,
+      onlineUsers: state.onlineUsers,
     })),
   );
 }
@@ -74,6 +76,7 @@ export function useMessagePanelSlice() {
       setRightPanel: state.setRightPanel,
       pendingAttachments: state.pendingAttachments,
       setPendingAttachment: state.setPendingAttachment,
+      typingUsers: state.typingUsers,
     })),
   );
 }

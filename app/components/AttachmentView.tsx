@@ -3,7 +3,8 @@
 import { API_BASE } from "../lib/chatApi";
 import type { Attachment } from "../types/chat";
 
-function absoluteUrl(url: string): string {
+function absoluteUrl(url: string | undefined): string | null {
+  if (!url) return null;
   if (/^https?:\/\//i.test(url)) return url;
   if (url.startsWith("/")) return `${API_BASE}${url}`;
   return url;
@@ -22,11 +23,14 @@ type AttachmentViewProps = {
 
 export function AttachmentView({ attachments }: AttachmentViewProps) {
   if (attachments.length === 0) return null;
+  console.log(attachments);
+
   return (
     <div className="mt-2 flex flex-col gap-2">
       {attachments.map((attachment) => {
-        const url = absoluteUrl(attachment.url);
-        if (attachment.kind === "image") {
+        const url = absoluteUrl(attachment.file_url);
+        if (!url) return null;
+        if (attachment.attachment_type === "image") {
           return (
             <a
               key={attachment.id}
@@ -38,13 +42,13 @@ export function AttachmentView({ attachments }: AttachmentViewProps) {
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src={url}
-                alt={attachment.filename ?? "image"}
+                alt={attachment.file ?? "image"}
                 className="max-h-80 w-full rounded-xl object-cover"
               />
             </a>
           );
         }
-        if (attachment.kind === "video") {
+        if (attachment.attachment_type === "video") {
           return (
             <video
               key={attachment.id}
@@ -54,14 +58,9 @@ export function AttachmentView({ attachments }: AttachmentViewProps) {
             />
           );
         }
-        if (attachment.kind === "audio") {
+        if (attachment.attachment_type === "audio") {
           return (
-            <audio
-              key={attachment.id}
-              controls
-              className="w-full"
-              src={url}
-            />
+            <audio key={attachment.id} controls className="w-full" src={url} />
           );
         }
         return (
@@ -81,11 +80,9 @@ export function AttachmentView({ attachments }: AttachmentViewProps) {
             </svg>
             <div className="min-w-0 flex-1">
               <p className="truncate text-sm font-medium">
-                {attachment.filename ?? "Attachment"}
+                {attachment.file ?? "Attachment"}
               </p>
-              <p className="text-[11px] text-tg-text-muted">
-                {formatSize(attachment.size)}
-              </p>
+              <p className="text-[11px] text-tg-text-muted">{formatSize(1)}</p>
             </div>
           </a>
         );

@@ -191,6 +191,17 @@ export async function fetchUsers(
   );
 }
 
+export async function searchUsers(
+  token: string,
+  tokenRef: TokenRef,
+  query: string,
+): Promise<User[]> {
+  return requestJson<User[]>(
+    { endpoint: `/api/users/search/?q=${encodeURIComponent(query)}`, token },
+    tokenRef,
+  );
+}
+
 export async function fetchDirectChats(
   token: string,
   tokenRef: TokenRef,
@@ -337,6 +348,42 @@ export async function createGroup(
 ): Promise<Group> {
   return requestJson<Group>(
     multipartBody("/api/chats/groups/", "POST", token, form),
+    tokenRef,
+  );
+}
+
+// Group E2E key storage
+export type GroupE2EKeyPayload = {
+  ciphertext: string;
+  iv: string;
+  encrypted_by_id: number;
+};
+
+export async function getGroupEncryptedKey(
+  token: string,
+  tokenRef: TokenRef,
+  groupId: number,
+): Promise<GroupE2EKeyPayload> {
+  return requestJson<GroupE2EKeyPayload>(
+    { endpoint: `/api/chats/groups/${groupId}/e2e-key/`, token },
+    tokenRef,
+  );
+}
+
+export async function setGroupEncryptedKey(
+  token: string,
+  tokenRef: TokenRef,
+  groupId: number,
+  forUserId: number,
+  ciphertext: string,
+  iv: string,
+): Promise<void> {
+  await requestJson<{ status: string }>(
+    jsonBody(`/api/chats/groups/${groupId}/e2e-key/`, "POST", token, {
+      for_user_id: forUserId,
+      ciphertext,
+      iv,
+    }),
     tokenRef,
   );
 }

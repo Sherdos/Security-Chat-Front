@@ -12,6 +12,7 @@ import {
   fetchTopics,
   fetchUsers,
   getGroupDetails,
+  getGroupEncryptedKey,
   getMyProfile,
   getMyPublicKey,
   getUserProfile,
@@ -21,16 +22,20 @@ import {
   markNotificationRead,
   register,
   sendMessageRest,
+  setGroupEncryptedKey,
   setMyPublicKey,
   updateMyProfile,
   uploadAttachment,
 } from "../lib/chatApi";
 import { getMessageKey } from "../lib/chatMessage";
 import {
+  decryptGroupKey,
   decryptWithKey,
+  deriveKeyPairFromMnemonic,
   deriveSharedKey,
+  encryptGroupKey,
   encryptWithKey,
-  generateIdentityKeyPair,
+  generateGroupKey,
   importPublicJwk,
 } from "../lib/crypto";
 import {
@@ -47,6 +52,16 @@ import type {
   GroupMember,
   UserProfile,
 } from "../types/chat";
+
+function normalizeNestedProfile(nested: UserProfile): UserProfile {
+  return {
+    avatar: nested.avatar_url ?? nested.avatar ?? null,
+    description: nested.description,
+    status: nested.status,
+    username: nested.username,
+    created_at: nested.created_at,
+  };
+}
 
 type UseChatActionsParams = {
   tokenRef: React.RefObject<{ access: string; refresh: string } | null>;
@@ -127,10 +142,12 @@ export function useChatActions({
   const setPendingAttachment = useChatStore(
     (state) => state.setPendingAttachment,
   );
+  const setMnemonicRequired = useChatStore((state) => state.setMnemonicRequired);
 
-  // In-memory identity + ECDH cache (per-tab lifetime)
+  // In-memory identity + ECDH/group key caches (per-tab lifetime)
   const identityRef = useRef<LocalIdentity | null>(null);
   const sharedKeyCache = useRef<Map<number, CryptoKey>>(new Map());
+  const groupKeyCache = useRef<Map<number, CryptoKey>>(new Map());
 
   const ensureIdentity = useCallback(async (): Promise<LocalIdentity | null> => {
     if (identityRef.current) return identityRef.current;
@@ -138,10 +155,11 @@ export function useChatActions({
     if (!access) return null;
 
     try {
-      let local = await loadIdentity();
+      const local = await loadIdentity();
       if (!local) {
-        const generated = await generateIdentityKeyPair();
-        local = await saveIdentity(generated);
+        // No key in localStorage — ask user for their secret words
+        setMnemonicRequired(true);
+        return null;
       }
       identityRef.current = local;
 
@@ -153,13 +171,16 @@ export function useChatActions({
     } catch {
       return null;
     }
-  }, [tokenRef, tokenStore]);
+  }, [tokenRef, tokenStore, setMnemonicRequired]);
 
   const resolvePeerId = useCallback((): number | null => {
     if (!activeDirectId || !me) return null;
     const chat = directChats.find((entry) => entry.id === activeDirectId);
-    if (!chat?.participants) return null;
-    const peer = chat.participants.find((user) => user.id !== me.id);
+    if (!chat) return null;
+    if (chat.sender_user_id !== undefined && chat.receiver_user_id !== undefined) {
+      return chat.sender_user_id === me.id ? chat.receiver_user_id : chat.sender_user_id;
+    }
+    const peer = chat.participants?.find((user) => user.id !== me.id);
     return peer?.id ?? null;
   }, [activeDirectId, directChats, me]);
 
@@ -198,6 +219,77 @@ export function useChatActions({
     [ensureIdentity, publicKeys, setPublicKey, tokenRef, tokenStore],
   );
 
+  const setupIdentityFromMnemonic = useCallback(
+    async (mnemonic: string): Promise<string | null> => {
+      try {
+        const derived = await deriveKeyPairFromMnemonic(mnemonic);
+        const local = await saveIdentity(derived);
+        identityRef.current = local;
+
+        const access = tokenRef.current?.access;
+        if (access) {
+          try {
+            await setMyPublicKey(access, tokenStore, local.publicJwk);
+          } catch {
+            // Non-fatal — ensureIdentity will retry on next bootstrap
+          }
+        }
+        setMnemonicRequired(false);
+        setDecryptedText({});
+        return null;
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : "Failed to set up identity";
+        setError(msg);
+        return msg;
+      }
+    },
+    [tokenRef, tokenStore, setMnemonicRequired, setError, setDecryptedText],
+  );
+
+  const getOrDeriveGroupKey = useCallback(
+    async (groupId: number): Promise<CryptoKey | null> => {
+      const cached = groupKeyCache.current.get(groupId);
+      if (cached) return cached;
+
+      const identity = await ensureIdentity();
+      if (!identity) return null;
+      const access = tokenRef.current?.access;
+      if (!access || !me) return null;
+
+      let groupKey: CryptoKey;
+
+      try {
+        const keyData = await getGroupEncryptedKey(access, tokenStore, groupId);
+        // Decrypt the wrapped group key using ECDH shared secret with the distributor
+        let encryptorPublic: CryptoKey;
+        if (keyData.encrypted_by_id === me.id) {
+          encryptorPublic = identity.publicKey;
+        } else {
+          let encryptorJwk = publicKeys[keyData.encrypted_by_id];
+          if (!encryptorJwk) {
+            const resp = await getUserPublicKey(access, tokenStore, keyData.encrypted_by_id);
+            if (!resp.public_key) return null;
+            encryptorJwk = resp.public_key;
+            setPublicKey(keyData.encrypted_by_id, encryptorJwk);
+          }
+          encryptorPublic = await importPublicJwk(encryptorJwk);
+        }
+        const wrapKey = await deriveSharedKey(identity.privateKey, encryptorPublic);
+        groupKey = await decryptGroupKey({ ciphertext: keyData.ciphertext, iv: keyData.iv }, wrapKey);
+      } catch {
+        // No key on server yet — generate one encrypted for ourselves
+        groupKey = await generateGroupKey();
+        const selfWrapKey = await deriveSharedKey(identity.privateKey, identity.publicKey);
+        const encrypted = await encryptGroupKey(groupKey, selfWrapKey);
+        await setGroupEncryptedKey(access, tokenStore, groupId, me.id, encrypted.ciphertext, encrypted.iv);
+      }
+
+      groupKeyCache.current.set(groupId, groupKey);
+      return groupKey;
+    },
+    [ensureIdentity, tokenRef, tokenStore, me, publicKeys, setPublicKey],
+  );
+
   const bootstrap = useCallback(async () => {
     const access = tokenRef.current?.access;
     if (!access) return;
@@ -218,6 +310,16 @@ export function useChatActions({
       setDirectChats(chatsRes);
       setGroups(groupsRes);
       setNotifications(notificationsRes);
+
+      // Seed userProfiles from nested user objects returned by the chats endpoint
+      chatsRes.forEach((chat) => {
+        if (chat.sender_user_id && chat.sender_user) {
+          upsertUserProfile(chat.sender_user_id, normalizeNestedProfile(chat.sender_user));
+        }
+        if (chat.receiver_user_id && chat.receiver_user) {
+          upsertUserProfile(chat.receiver_user_id, normalizeNestedProfile(chat.receiver_user));
+        }
+      });
 
       try {
         const profile = await getMyProfile(access, tokenStore);
@@ -276,6 +378,16 @@ export function useChatActions({
       setMessages(response);
       setDecryptedText({});
       setError("");
+
+      // Seed userProfiles from nested user objects in message history
+      response.forEach((msg) => {
+        if (msg.sender_user_id && msg.sender_user) {
+          upsertUserProfile(msg.sender_user_id, normalizeNestedProfile(msg.sender_user));
+        }
+        if (msg.receiver_user_id && msg.receiver_user) {
+          upsertUserProfile(msg.receiver_user_id, normalizeNestedProfile(msg.receiver_user));
+        }
+      });
     } catch (requestError) {
       setError(
         requestError instanceof Error
@@ -293,6 +405,7 @@ export function useChatActions({
     setMessages,
     setDecryptedText,
     setError,
+    upsertUserProfile,
   ]);
 
   const loadTopics = useCallback(async () => {
@@ -381,6 +494,7 @@ export function useChatActions({
     setMyProfile(null);
     identityRef.current = null;
     sharedKeyCache.current.clear();
+    groupKeyCache.current.clear();
     disconnectSocket();
   }, [
     setTokens,
@@ -569,6 +683,30 @@ export function useChatActions({
         );
         appendGroupMember(groupId, created);
         setStatus(`Added member #${userId}`);
+
+        // Distribute group key to the new member
+        const groupKey = await getOrDeriveGroupKey(groupId);
+        const identity = identityRef.current;
+        if (identity && groupKey) {
+          try {
+            let memberJwk = publicKeys[userId];
+            if (!memberJwk) {
+              const resp = await getUserPublicKey(access, tokenStore, userId);
+              if (resp.public_key) {
+                memberJwk = resp.public_key;
+                setPublicKey(userId, memberJwk);
+              }
+            }
+            if (memberJwk) {
+              const memberPublic = await importPublicJwk(memberJwk);
+              const wrapKey = await deriveSharedKey(identity.privateKey, memberPublic);
+              const encrypted = await encryptGroupKey(groupKey, wrapKey);
+              await setGroupEncryptedKey(access, tokenStore, groupId, userId, encrypted.ciphertext, encrypted.iv);
+            }
+          } catch {
+            // Non-fatal: member can still request the key later
+          }
+        }
       } catch (requestError) {
         setError(
           requestError instanceof Error
@@ -577,7 +715,7 @@ export function useChatActions({
         );
       }
     },
-    [tokenRef, tokenStore, appendGroupMember, setStatus, setError],
+    [tokenRef, tokenStore, appendGroupMember, setStatus, setError, publicKeys, setPublicKey, getOrDeriveGroupKey],
   );
 
   const loadUserProfile = useCallback(
@@ -685,6 +823,14 @@ export function useChatActions({
               encrypted = true;
             }
           }
+        } else if (roomType === "group" && activeGroupId) {
+          const groupKey = await getOrDeriveGroupKey(activeGroupId);
+          if (groupKey && plainText) {
+            const payload = await encryptWithKey(groupKey, plainText);
+            ciphertext = payload.ciphertext;
+            iv = payload.iv;
+            encrypted = true;
+          }
         }
 
         const socketPayload: Record<string, unknown> = { ciphertext, iv };
@@ -769,9 +915,8 @@ export function useChatActions({
           }
         }
 
-        if (!encrypted && roomType === "direct") {
-          // direct chat but no key → surface subtle status only
-          setStatus("Sent (no peer key — plaintext)");
+        if (!encrypted) {
+          setStatus("Sent (no key — plaintext)");
         }
       } catch (sendError) {
         setError(
@@ -850,6 +995,22 @@ export function useChatActions({
     [me, resolvePeerId, getOrDerivePeerKey],
   );
 
+  const tryDecryptGroupMessage = useCallback(
+    async (message: ChatMessage): Promise<string | null> => {
+      if (message.iv.startsWith("plain:")) return null;
+      if (message.group_id == null) return null;
+
+      const groupKey = await getOrDeriveGroupKey(message.group_id);
+      if (!groupKey) return null;
+      try {
+        return await decryptWithKey(groupKey, message.ciphertext, message.iv);
+      } catch {
+        return null;
+      }
+    },
+    [getOrDeriveGroupKey],
+  );
+
   return {
     bootstrap,
     loadMessages,
@@ -867,5 +1028,7 @@ export function useChatActions({
     loadUserProfile,
     handleUpdateProfile,
     tryDecryptDirectMessage,
+    tryDecryptGroupMessage,
+    setupIdentityFromMnemonic,
   };
 }

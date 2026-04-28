@@ -3,9 +3,12 @@ import { useShallow } from "zustand/react/shallow";
 import { useChatStore } from "../store/chatStore";
 import { useChatActions } from "./useChatActions";
 import { useChatSocket } from "./useChatSocket";
+import { usePresenceSocket } from "./usePresenceSocket";
+import { useNotificationSocket } from "./useNotificationSocket";
 import { useMessageDisplay } from "./useMessageDisplay";
 import { useTokenStore } from "./useTokenStore";
-import type { ChatMessage } from "../types/chat";
+import { useToast } from "../components/ToastProvider";
+import type { ChatMessage, Notification } from "../types/chat";
 
 export function useChatPageController() {
   const { tokens, tokenRef, tokenStore } = useTokenStore();
@@ -18,9 +21,13 @@ export function useChatPageController() {
     activeDirectId,
     activeGroupId,
     activeTopicId,
+    mnemonicRequired,
     setMessages,
     setStatus,
     setError,
+    setUserOnline,
+    setTypingUser,
+    prependNotification,
   } = useChatStore(
     useShallow((state) => ({
       groups: state.groups,
@@ -30,24 +37,26 @@ export function useChatPageController() {
       activeDirectId: state.activeDirectId,
       activeGroupId: state.activeGroupId,
       activeTopicId: state.activeTopicId,
+      mnemonicRequired: state.mnemonicRequired,
       setMessages: state.setMessages,
       setStatus: state.setStatus,
       setError: state.setError,
+      setUserOnline: state.setUserOnline,
+      setTypingUser: state.setTypingUser,
+      prependNotification: state.prependNotification,
     })),
   );
 
   const setRightPanel = useChatStore((state) => state.setRightPanel);
 
-  const directDecryptorRef = useRef<
+  const messageDecryptorRef = useRef<
     ((msg: ChatMessage) => Promise<string | null>) | null
   >(null);
 
   const {
-    passphrase,
     setDecryptedText,
-    handlePassphraseInputChange,
     getMessageText,
-  } = useMessageDisplay(messages, directDecryptorRef);
+  } = useMessageDisplay(messages, messageDecryptorRef);
 
   const activeGroup = useMemo(
     () => groups.find((group) => group.id === activeGroupId) ?? null,
@@ -112,9 +121,46 @@ export function useChatPageController() {
     activeRoomTitle,
     tokenStore,
     applyIncomingMessage,
+    setTypingUser,
     setStatus,
     setError,
   });
+
+  const { sendTyping } = usePresenceSocket({
+    tokens,
+    tokenStore,
+    setUserOnline,
+    setTypingUser,
+  });
+
+  const { showToast } = useToast();
+
+  const handleIncomingNotification = useCallback(
+    (n: Notification) => {
+      // id === 0 is a sentinel for group notifications without a DB id
+      if (n.id > 0) {
+        prependNotification(n);
+      }
+      showToast(n.message ?? "New notification", { kind: "message" });
+    },
+    [prependNotification, showToast],
+  );
+
+  useNotificationSocket({
+    tokens,
+    tokenStore,
+    onNotification: handleIncomingNotification,
+  });
+
+  const presenceRoomKey = useMemo(() => {
+    if (roomType === "direct" && activeDirectId != null)
+      return `direct:${activeDirectId}`;
+    if (roomType === "group") {
+      if (activeTopicId != null) return `topic:${activeTopicId}`;
+      if (activeGroupId != null) return `group:${activeGroupId}`;
+    }
+    return null;
+  }, [roomType, activeDirectId, activeGroupId, activeTopicId]);
 
   const actions = useChatActions({
     tokenRef,
@@ -142,11 +188,17 @@ export function useChatPageController() {
     loadUserProfile,
     handleUpdateProfile,
     tryDecryptDirectMessage,
+    tryDecryptGroupMessage,
+    setupIdentityFromMnemonic,
   } = actions;
 
   useEffect(() => {
-    directDecryptorRef.current = tryDecryptDirectMessage;
-  }, [tryDecryptDirectMessage]);
+    messageDecryptorRef.current = async (msg: ChatMessage) => {
+      if (msg.chat_id != null) return tryDecryptDirectMessage(msg);
+      if (msg.group_id != null) return tryDecryptGroupMessage(msg);
+      return null;
+    };
+  }, [tryDecryptDirectMessage, tryDecryptGroupMessage]);
 
   const showGroupInfo = useCallback(() => {
     if (!activeGroupId) return;
@@ -203,11 +255,10 @@ export function useChatPageController() {
 
   return {
     tokens,
-    passphrase,
+    mnemonicRequired,
     activeRoomTitle,
     roomType,
     activeGroup,
-    handlePassphraseInputChange,
     getMessageText,
     bootstrap,
     handleAuthSubmit,
@@ -225,5 +276,8 @@ export function useChatPageController() {
     showGroupInfo,
     showProfile,
     closeRightPanel,
+    sendTyping,
+    presenceRoomKey,
+    setupIdentityFromMnemonic,
   };
 }

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef } from "react";
 import type { Tokens } from "../lib/chatApi";
 import { useSessionStore } from "../store/sessionStore";
 
+
 export type TokenStore = {
   get: () => Tokens | null;
   set: (tokens: Tokens | null) => void;
@@ -23,6 +24,10 @@ export function useTokenStore() {
     }),
     [setTokens],
   );
+
+  useEffect(() => {
+    useSessionStore.persist.rehydrate();
+  }, []);
 
   useEffect(() => {
     tokenRef.current = tokens;

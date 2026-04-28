@@ -16,6 +16,7 @@ export const useSessionStore = create<SessionStore>()(
     {
       name: "onlinechatfront.tokens",
       storage: createJSONStorage(() => localStorage),
+      skipHydration: true,
     },
   ),
 );

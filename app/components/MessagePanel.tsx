@@ -12,6 +12,8 @@ type MessagePanelProps = {
   handleSendMessage: (event: React.FormEvent<HTMLFormElement>) => void;
   showProfile: (userId: number) => void;
   loadUserProfile: (userId: number) => Promise<void>;
+  sendTyping: (roomKey: string) => void;
+  presenceRoomKey: string | null;
 };
 
 const AVATAR_GRADIENTS = [
@@ -51,6 +53,8 @@ export function MessagePanel({
   handleSendMessage,
   showProfile,
   loadUserProfile,
+  sendTyping,
+  presenceRoomKey,
 }: MessagePanelProps) {
   const {
     messages,
@@ -60,7 +64,22 @@ export function MessagePanel({
     userProfiles,
     pendingAttachments,
     setPendingAttachment,
+    typingUsers,
   } = useMessagePanelSlice();
+
+  const typingUserIds = presenceRoomKey
+    ? (typingUsers[presenceRoomKey] ?? []).filter((id) => id !== me?.id)
+    : [];
+
+  const typingLabel = (() => {
+    if (typingUserIds.length === 0) return null;
+    const names = typingUserIds.map(
+      (id) => userProfiles[id]?.username ?? `User ${id}`,
+    );
+    if (names.length === 1) return `${names[0]} is typing`;
+    if (names.length === 2) return `${names[0]} and ${names[1]} are typing`;
+    return `${names.length} people are typing`;
+  })();
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const draftFile = pendingAttachments["draft:current"] ?? null;
@@ -147,7 +166,9 @@ export function MessagePanel({
                             message.sender_user_id,
                           )}`}
                         >
-                          {String(message.sender_user_id ?? "?").slice(0, 2)}
+                          {(peerProfile?.username ?? String(message.sender_user_id ?? "?"))
+                            .slice(0, 2)
+                            .toUpperCase()}
                         </div>
                       )}
                     </button>
@@ -173,9 +194,7 @@ export function MessagePanel({
                   >
                     {!isMine && !sameSenderAsPrev && (
                       <p className="mb-0.5 text-xs font-semibold text-tg-accent-hover">
-                        {peerProfile?.status
-                          ? peerProfile.status
-                          : `User ${message.sender_user_id ?? "?"}`}
+                        {peerProfile?.username ?? `User ${message.sender_user_id ?? "?"}`}
                       </p>
                     )}
                     {textToRender && (
@@ -206,6 +225,17 @@ export function MessagePanel({
           </div>
         )}
       </div>
+
+      {typingLabel && (
+        <div className="flex items-center gap-2 border-t border-tg-border/50 bg-tg-bg px-5 py-1.5">
+          <span className="flex gap-0.5">
+            <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-tg-text-secondary [animation-delay:0ms]" />
+            <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-tg-text-secondary [animation-delay:150ms]" />
+            <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-tg-text-secondary [animation-delay:300ms]" />
+          </span>
+          <p className="text-xs text-tg-text-secondary">{typingLabel}</p>
+        </div>
+      )}
 
       <form
         className="border-t border-tg-border bg-tg-bg px-4 py-3"
@@ -267,7 +297,12 @@ export function MessagePanel({
               placeholder="Write a message"
               rows={1}
               value={messageInput}
-              onChange={(event) => setMessageInput(event.target.value)}
+              onChange={(event) => {
+                setMessageInput(event.target.value);
+                if (presenceRoomKey && event.target.value) {
+                  sendTyping(presenceRoomKey);
+                }
+              }}
               onKeyDown={(event) => {
                 if (event.key === "Enter" && !event.shiftKey) {
                   event.preventDefault();

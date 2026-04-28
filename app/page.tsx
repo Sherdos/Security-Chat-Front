@@ -5,6 +5,7 @@ import { AuthView } from "./components/AuthView";
 import { ChatSidebar } from "./components/ChatSidebar";
 import { GroupInfoPanel } from "./components/GroupInfoPanel";
 import { MessagePanel } from "./components/MessagePanel";
+import { MnemonicSetupModal } from "./components/MnemonicSetupModal";
 import { ProfilePanel } from "./components/ProfilePanel";
 import { useChatPageController } from "./hooks/useChatPageController";
 import {
@@ -25,11 +26,10 @@ export default function Home() {
 
   const {
     tokens,
-    passphrase,
+    mnemonicRequired,
     roomType,
     activeGroup,
     activeRoomTitle,
-    handlePassphraseInputChange,
     getMessageText,
     bootstrap,
     handleAuthSubmit,
@@ -47,6 +47,9 @@ export default function Home() {
     showGroupInfo,
     showProfile,
     closeRightPanel,
+    sendTyping,
+    presenceRoomKey,
+    setupIdentityFromMnemonic,
   } = useChatPageController();
 
   if (!tokens) {
@@ -56,18 +59,8 @@ export default function Home() {
   const meAvatarUrl = absoluteUrl(myProfile?.avatar);
   const canShowGroupInfo = roomType === "group" && Boolean(activeGroup);
 
-  const encryptionLabel =
-    roomType === "direct"
-      ? "E2E"
-      : passphrase
-        ? "Passphrase"
-        : "Unencrypted";
-  const encryptionClass =
-    roomType === "direct"
-      ? "bg-[#81c784]/20 text-[#81c784]"
-      : passphrase
-        ? "bg-tg-accent/20 text-tg-accent-hover"
-        : "bg-tg-danger/20 text-tg-danger";
+  const encryptionLabel = "E2E";
+  const encryptionClass = "bg-[#81c784]/20 text-[#81c784]";
 
   return (
     <main className="flex h-screen w-full overflow-hidden bg-tg-bg-main">
@@ -172,13 +165,6 @@ export default function Home() {
             </span>
           </div>
           <div className="flex items-center gap-2">
-            <input
-              className="w-56 rounded-full border border-tg-border bg-tg-panel px-3 py-1.5 text-xs placeholder:text-tg-text-muted focus:border-tg-accent"
-              placeholder="Passphrase (groups & legacy)"
-              type="password"
-              value={passphrase}
-              onChange={handlePassphraseInputChange}
-            />
             {canShowGroupInfo && (
               <button
                 type="button"
@@ -204,8 +190,14 @@ export default function Home() {
           handleSendMessage={handleSendMessage}
           showProfile={showProfile}
           loadUserProfile={loadUserProfile}
+          sendTyping={sendTyping}
+          presenceRoomKey={presenceRoomKey}
         />
       </section>
+
+      {mnemonicRequired && (
+        <MnemonicSetupModal onSetup={setupIdentityFromMnemonic} />
+      )}
 
       {rightPanel.kind === "groupInfo" && (
         <GroupInfoPanel

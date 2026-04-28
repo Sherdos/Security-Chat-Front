@@ -85,6 +85,21 @@ select:focus {
   border-color: var(--tg-accent);
 }
 
+@keyframes toast-enter {
+  from {
+    opacity: 0;
+    transform: translateY(-0.4rem) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.animate-toast-enter {
+  animation: toast-enter 0.18s ease-out forwards;
+}
+
 .chat-pattern {
   background-color: var(--tg-bg-main);
   background-image: radial-gradient(

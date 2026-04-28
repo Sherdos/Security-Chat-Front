@@ -45,6 +45,9 @@ type ChatStore = {
   publicKeys: Record<number, JsonWebKey>;
   pendingAttachments: Record<string, File>;
   rightPanel: RightPanelState;
+  onlineUsers: Record<number, boolean>;
+  typingUsers: Record<string, number[]>;
+  mnemonicRequired: boolean;
   setMe: (value: User | null) => void;
   setUsers: (value: User[]) => void;
   setNotifications: (value: SetStateAction<Notification[]>) => void;
@@ -77,6 +80,10 @@ type ChatStore = {
   setPublicKey: (userId: number, value: JsonWebKey) => void;
   setPendingAttachment: (localId: string, value: File | null) => void;
   setRightPanel: (value: RightPanelState) => void;
+  setUserOnline: (userId: number, online: boolean) => void;
+  setTypingUser: (roomKey: string, userId: number, typing: boolean) => void;
+  prependNotification: (value: Notification) => void;
+  setMnemonicRequired: (value: boolean) => void;
 };
 
 export const useChatStore = create<ChatStore>((set) => ({
@@ -111,6 +118,9 @@ export const useChatStore = create<ChatStore>((set) => ({
   publicKeys: {},
   pendingAttachments: {},
   rightPanel: { kind: null, targetId: null },
+  onlineUsers: {},
+  typingUsers: {},
+  mnemonicRequired: false,
   setMe: (value) => set({ me: value }),
   setUsers: (value) => set({ users: value }),
   setNotifications: (value) =>
@@ -200,4 +210,34 @@ export const useChatStore = create<ChatStore>((set) => ({
       return { pendingAttachments: next };
     }),
   setRightPanel: (value) => set({ rightPanel: value }),
+  setUserOnline: (userId, online) =>
+    set((state) => {
+      if (Boolean(state.onlineUsers[userId]) === online) return state;
+      const next = { ...state.onlineUsers };
+      if (online) {
+        next[userId] = true;
+      } else {
+        delete next[userId];
+      }
+      return { onlineUsers: next };
+    }),
+  prependNotification: (value) =>
+    set((state) => {
+      if (state.notifications.some((n) => n.id === value.id)) return state;
+      return { notifications: [value, ...state.notifications] };
+    }),
+  setMnemonicRequired: (value) => set({ mnemonicRequired: value }),
+  setTypingUser: (roomKey, userId, typing) =>
+    set((state) => {
+      const current = state.typingUsers[roomKey] ?? [];
+      if (typing) {
+        if (current.includes(userId)) return state;
+        return {
+          typingUsers: { ...state.typingUsers, [roomKey]: [...current, userId] },
+        };
+      }
+      const next = current.filter((id) => id !== userId);
+      if (next.length === current.length) return state;
+      return { typingUsers: { ...state.typingUsers, [roomKey]: next } };
+    }),
 }));
