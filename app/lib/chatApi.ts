@@ -10,14 +10,24 @@ import type {
   UserProfile,
 } from "../types/chat";
 
-const DEFAULT_API_BASE = "https://127.0.0.1:8001";
+const DEFAULT_API_BASE = "http://127.0.0.1:8001";
 
-export const API_BASE =
-  process.env.NEXT_PUBLIC_API_BASE_URL?.replace(/\/$/, "") ?? DEFAULT_API_BASE;
+function upgradeProtocol(url: string): string {
+  if (typeof window === "undefined") return url;
+  if (window.location.protocol === "https:") {
+    return url.replace(/^http:\/\//, "https://").replace(/^ws:\/\//, "wss://");
+  }
+  return url;
+}
 
-export const WS_BASE =
+export const API_BASE = upgradeProtocol(
+  process.env.NEXT_PUBLIC_API_BASE_URL?.replace(/\/$/, "") ?? DEFAULT_API_BASE,
+);
+
+export const WS_BASE = upgradeProtocol(
   process.env.NEXT_PUBLIC_WS_BASE_URL?.replace(/\/$/, "") ??
-  API_BASE.replace(/^http/, "ws");
+    API_BASE.replace(/^https?/, (p) => (p === "https" ? "wss" : "ws")),
+);
 
 export type Tokens = {
   access: string;
