@@ -10,14 +10,12 @@ import type {
   UserProfile,
 } from "../types/chat";
 
-const DEFAULT_API_BASE = "http://127.0.0.1:8001";
+export const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL?.replace(
+  /\/$/,
+  "",
+);
 
-export const API_BASE =
-  process.env.NEXT_PUBLIC_API_BASE_URL?.replace(/\/$/, "") ?? DEFAULT_API_BASE;
-
-export const WS_BASE =
-  process.env.NEXT_PUBLIC_WS_BASE_URL?.replace(/\/$/, "") ??
-  API_BASE.replace(/^http/, "ws");
+export const WS_BASE = process.env.NEXT_PUBLIC_WS_BASE_URL?.replace(/\/$/, "");
 
 export type Tokens = {
   access: string;
@@ -478,7 +476,11 @@ export async function markMessageRead(
   messageId: number,
 ): Promise<void> {
   await requestJson(
-    { endpoint: `/api/chats/messages/${messageId}/read/`, method: "POST", token },
+    {
+      endpoint: `/api/chats/messages/${messageId}/read/`,
+      method: "POST",
+      token,
+    },
     tokenRef,
   );
 }
