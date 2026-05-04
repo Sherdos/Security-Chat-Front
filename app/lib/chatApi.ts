@@ -10,12 +10,14 @@ import type {
   UserProfile,
 } from "../types/chat";
 
-export const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL?.replace(
-  /\/$/,
-  "",
-);
+const DEFAULT_API_BASE = "https://127.0.0.1:8001";
 
-export const WS_BASE = process.env.NEXT_PUBLIC_WS_BASE_URL?.replace(/\/$/, "");
+export const API_BASE =
+  process.env.NEXT_PUBLIC_API_BASE_URL?.replace(/\/$/, "") ?? DEFAULT_API_BASE;
+
+export const WS_BASE =
+  process.env.NEXT_PUBLIC_WS_BASE_URL?.replace(/\/$/, "") ??
+  API_BASE.replace(/^http/, "ws");
 
 export type Tokens = {
   access: string;
