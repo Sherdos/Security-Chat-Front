@@ -13,7 +13,7 @@
   --tg-text-muted: #6b7885;
   --tg-border: #242f3d;
   --tg-own-bubble: #2b5278;
-  --tg-received-bubble: #182533;
+  --tg-received-bubble: #2b52787b;
   --tg-danger: #e53935;
 
   --background: var(--tg-bg-main);

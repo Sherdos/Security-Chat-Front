@@ -13,6 +13,7 @@ type UseChatSocketParams = {
   tokenStore: TokenStore;
   applyIncomingMessage: (incoming: ChatMessage) => void;
   setTypingUser: (roomKey: string, userId: number, typing: boolean) => void;
+  setMessageIsRead: (messageId: number) => void;
   setStatus: (value: string) => void;
   setError: (value: string) => void;
 };
@@ -27,6 +28,7 @@ export function useChatSocket({
   tokenStore,
   applyIncomingMessage,
   setTypingUser,
+  setMessageIsRead,
   setStatus,
   setError,
 }: UseChatSocketParams) {
@@ -72,6 +74,12 @@ export function useChatSocket({
     socket.onmessage = (event) => {
       try {
         const raw = JSON.parse(event.data as string) as Record<string, unknown>;
+
+        if (raw.type === "read_receipt") {
+          const messageId = raw.message_id as number | undefined;
+          if (typeof messageId === "number") setMessageIsRead(messageId);
+          return;
+        }
 
         if (raw.type === "typing") {
           const userId = raw.user_id as number;
@@ -137,13 +145,22 @@ export function useChatSocket({
     disconnectSocket,
     applyIncomingMessage,
     setTypingUser,
+    setMessageIsRead,
     tokenStore,
     setStatus,
     setError,
   ]);
 
+  const sendRead = useCallback((messageId: number) => {
+    const socket = wsRef.current;
+    if (socket && socket.readyState === WebSocket.OPEN) {
+      socket.send(JSON.stringify({ type: "read", message_id: messageId }));
+    }
+  }, []);
+
   return {
     wsRef,
     disconnectSocket,
+    sendRead,
   };
 }

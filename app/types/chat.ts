@@ -22,6 +22,15 @@ export type Notification = {
   created_at?: string;
 };
 
+export type LastMessage = {
+  id: number;
+  ciphertext: string;
+  iv: string;
+  sender_user_id?: number;
+  created_at?: string;
+  is_read?: boolean;
+};
+
 export type Chat = {
   id: number;
   sender_user_id?: number;
@@ -31,6 +40,8 @@ export type Chat = {
   receiver_user?: UserProfile;
   /** Legacy field, no longer returned by backend */
   participants?: User[];
+  last_message?: LastMessage | null;
+  unread_count?: number;
 };
 
 export type Group = {
@@ -40,6 +51,7 @@ export type Group = {
   description?: string;
   avatar?: string | null;
   owner_id?: number;
+  last_message?: LastMessage | null;
 };
 
 export type GroupMemberRole = "owner" | "admin" | "member";
@@ -65,6 +77,8 @@ export type Attachment = {
   file?: string;
 };
 
+export type MessageStatus = "pending" | "sent" | "read";
+
 export type ChatMessage = {
   id?: number;
   localId?: string;
@@ -79,6 +93,7 @@ export type ChatMessage = {
   iv: string;
   created_at?: string;
   pending?: boolean;
+  is_read?: boolean;
   attachments?: Attachment[];
 };
 

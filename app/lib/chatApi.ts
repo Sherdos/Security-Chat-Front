@@ -185,10 +185,7 @@ export async function fetchUsers(
   token: string,
   tokenRef: TokenRef,
 ): Promise<User[]> {
-  return requestJson<User[]>(
-    { endpoint: "/api/users/list/", token },
-    tokenRef,
-  );
+  return requestJson<User[]>({ endpoint: "/api/users/list/", token }, tokenRef);
 }
 
 export async function searchUsers(
@@ -331,12 +328,9 @@ export async function addGroupMember(
   userId: number,
 ): Promise<GroupMember> {
   return requestJson<GroupMember>(
-    jsonBody(
-      `/api/chats/groups/${groupId}/members/`,
-      "POST",
-      token,
-      { user_id: userId },
-    ),
+    jsonBody(`/api/chats/groups/${groupId}/members/`, "POST", token, {
+      user_id: userId,
+    }),
     tokenRef,
   );
 }
@@ -417,12 +411,7 @@ export async function createTopic(
   title: string,
 ): Promise<Topic> {
   return requestJson<Topic>(
-    jsonBody(
-      `/api/chats/groups/${groupId}/topics/`,
-      "POST",
-      token,
-      { title },
-    ),
+    jsonBody(`/api/chats/groups/${groupId}/topics/`, "POST", token, { title }),
     tokenRef,
   );
 }
@@ -447,6 +436,16 @@ export async function uploadAttachment(
 ): Promise<Attachment> {
   const form = new FormData();
   form.append("file", file);
+  // Explicitly declare audio so the server doesn't misclassify audio/webm as video.
+  if (file.type.startsWith("audio/")) {
+    form.append("attachment_type", "audio");
+  }
+  if (file.type.startsWith("image/")) {
+    form.append("attachment_type", "image");
+  }
+  if (file.type.startsWith("video/")) {
+    form.append("attachment_type", "video");
+  }
   return requestJson<Attachment>(
     multipartBody(
       `/api/chats/messages/${messageId}/attachments/`,
@@ -468,6 +467,18 @@ export async function createDirectChat(
     jsonBody("/api/chats/", "POST", token, {
       receiver_user_id: receiverUserId,
     }),
+    tokenRef,
+  );
+}
+
+// Read receipts
+export async function markMessageRead(
+  token: string,
+  tokenRef: TokenRef,
+  messageId: number,
+): Promise<void> {
+  await requestJson(
+    { endpoint: `/api/chats/messages/${messageId}/read/`, method: "POST", token },
     tokenRef,
   );
 }

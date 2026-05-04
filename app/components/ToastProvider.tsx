@@ -52,6 +52,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
     <ToastContext.Provider value={{ showToast }}>
       {children}
       <div
+        suppressHydrationWarning
         aria-live="polite"
         className="pointer-events-none fixed right-4 top-4 z-[200] flex flex-col items-end gap-2"
       >

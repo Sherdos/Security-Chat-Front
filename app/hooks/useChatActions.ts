@@ -142,43 +142,53 @@ export function useChatActions({
   const setPendingAttachment = useChatStore(
     (state) => state.setPendingAttachment,
   );
-  const setMnemonicRequired = useChatStore((state) => state.setMnemonicRequired);
+  const setMnemonicRequired = useChatStore(
+    (state) => state.setMnemonicRequired,
+  );
 
   // In-memory identity + ECDH/group key caches (per-tab lifetime)
   const identityRef = useRef<LocalIdentity | null>(null);
   const sharedKeyCache = useRef<Map<number, CryptoKey>>(new Map());
   const groupKeyCache = useRef<Map<number, CryptoKey>>(new Map());
+  // Files waiting to be uploaded once the server echoes back a real message id
+  const pendingUploadFilesRef = useRef<Map<string, File>>(new Map());
 
-  const ensureIdentity = useCallback(async (): Promise<LocalIdentity | null> => {
-    if (identityRef.current) return identityRef.current;
-    const access = tokenRef.current?.access;
-    if (!access) return null;
+  const ensureIdentity =
+    useCallback(async (): Promise<LocalIdentity | null> => {
+      if (identityRef.current) return identityRef.current;
+      const access = tokenRef.current?.access;
+      if (!access) return null;
 
-    try {
-      const local = await loadIdentity();
-      if (!local) {
-        // No key in localStorage — ask user for their secret words
-        setMnemonicRequired(true);
+      try {
+        const local = await loadIdentity();
+        if (!local) {
+          // No key in localStorage — ask user for their secret words
+          setMnemonicRequired(true);
+          return null;
+        }
+        identityRef.current = local;
+
+        const remote = await getMyPublicKey(access, tokenStore);
+        if (!publicKeysEqual(remote.public_key, local.publicJwk)) {
+          await setMyPublicKey(access, tokenStore, local.publicJwk);
+        }
+        return local;
+      } catch {
         return null;
       }
-      identityRef.current = local;
-
-      const remote = await getMyPublicKey(access, tokenStore);
-      if (!publicKeysEqual(remote.public_key, local.publicJwk)) {
-        await setMyPublicKey(access, tokenStore, local.publicJwk);
-      }
-      return local;
-    } catch {
-      return null;
-    }
-  }, [tokenRef, tokenStore, setMnemonicRequired]);
+    }, [tokenRef, tokenStore, setMnemonicRequired]);
 
   const resolvePeerId = useCallback((): number | null => {
     if (!activeDirectId || !me) return null;
     const chat = directChats.find((entry) => entry.id === activeDirectId);
     if (!chat) return null;
-    if (chat.sender_user_id !== undefined && chat.receiver_user_id !== undefined) {
-      return chat.sender_user_id === me.id ? chat.receiver_user_id : chat.sender_user_id;
+    if (
+      chat.sender_user_id !== undefined &&
+      chat.receiver_user_id !== undefined
+    ) {
+      return chat.sender_user_id === me.id
+        ? chat.receiver_user_id
+        : chat.sender_user_id;
     }
     const peer = chat.participants?.find((user) => user.id !== me.id);
     return peer?.id ?? null;
@@ -238,7 +248,8 @@ export function useChatActions({
         setDecryptedText({});
         return null;
       } catch (err) {
-        const msg = err instanceof Error ? err.message : "Failed to set up identity";
+        const msg =
+          err instanceof Error ? err.message : "Failed to set up identity";
         setError(msg);
         return msg;
       }
@@ -267,21 +278,41 @@ export function useChatActions({
         } else {
           let encryptorJwk = publicKeys[keyData.encrypted_by_id];
           if (!encryptorJwk) {
-            const resp = await getUserPublicKey(access, tokenStore, keyData.encrypted_by_id);
+            const resp = await getUserPublicKey(
+              access,
+              tokenStore,
+              keyData.encrypted_by_id,
+            );
             if (!resp.public_key) return null;
             encryptorJwk = resp.public_key;
             setPublicKey(keyData.encrypted_by_id, encryptorJwk);
           }
           encryptorPublic = await importPublicJwk(encryptorJwk);
         }
-        const wrapKey = await deriveSharedKey(identity.privateKey, encryptorPublic);
-        groupKey = await decryptGroupKey({ ciphertext: keyData.ciphertext, iv: keyData.iv }, wrapKey);
+        const wrapKey = await deriveSharedKey(
+          identity.privateKey,
+          encryptorPublic,
+        );
+        groupKey = await decryptGroupKey(
+          { ciphertext: keyData.ciphertext, iv: keyData.iv },
+          wrapKey,
+        );
       } catch {
         // No key on server yet — generate one encrypted for ourselves
         groupKey = await generateGroupKey();
-        const selfWrapKey = await deriveSharedKey(identity.privateKey, identity.publicKey);
+        const selfWrapKey = await deriveSharedKey(
+          identity.privateKey,
+          identity.publicKey,
+        );
         const encrypted = await encryptGroupKey(groupKey, selfWrapKey);
-        await setGroupEncryptedKey(access, tokenStore, groupId, me.id, encrypted.ciphertext, encrypted.iv);
+        await setGroupEncryptedKey(
+          access,
+          tokenStore,
+          groupId,
+          me.id,
+          encrypted.ciphertext,
+          encrypted.iv,
+        );
       }
 
       groupKeyCache.current.set(groupId, groupKey);
@@ -314,10 +345,16 @@ export function useChatActions({
       // Seed userProfiles from nested user objects returned by the chats endpoint
       chatsRes.forEach((chat) => {
         if (chat.sender_user_id && chat.sender_user) {
-          upsertUserProfile(chat.sender_user_id, normalizeNestedProfile(chat.sender_user));
+          upsertUserProfile(
+            chat.sender_user_id,
+            normalizeNestedProfile(chat.sender_user),
+          );
         }
         if (chat.receiver_user_id && chat.receiver_user) {
-          upsertUserProfile(chat.receiver_user_id, normalizeNestedProfile(chat.receiver_user));
+          upsertUserProfile(
+            chat.receiver_user_id,
+            normalizeNestedProfile(chat.receiver_user),
+          );
         }
       });
 
@@ -382,10 +419,16 @@ export function useChatActions({
       // Seed userProfiles from nested user objects in message history
       response.forEach((msg) => {
         if (msg.sender_user_id && msg.sender_user) {
-          upsertUserProfile(msg.sender_user_id, normalizeNestedProfile(msg.sender_user));
+          upsertUserProfile(
+            msg.sender_user_id,
+            normalizeNestedProfile(msg.sender_user),
+          );
         }
         if (msg.receiver_user_id && msg.receiver_user) {
-          upsertUserProfile(msg.receiver_user_id, normalizeNestedProfile(msg.receiver_user));
+          upsertUserProfile(
+            msg.receiver_user_id,
+            normalizeNestedProfile(msg.receiver_user),
+          );
         }
       });
     } catch (requestError) {
@@ -699,9 +742,19 @@ export function useChatActions({
             }
             if (memberJwk) {
               const memberPublic = await importPublicJwk(memberJwk);
-              const wrapKey = await deriveSharedKey(identity.privateKey, memberPublic);
+              const wrapKey = await deriveSharedKey(
+                identity.privateKey,
+                memberPublic,
+              );
               const encrypted = await encryptGroupKey(groupKey, wrapKey);
-              await setGroupEncryptedKey(access, tokenStore, groupId, userId, encrypted.ciphertext, encrypted.iv);
+              await setGroupEncryptedKey(
+                access,
+                tokenStore,
+                groupId,
+                userId,
+                encrypted.ciphertext,
+                encrypted.iv,
+              );
             }
           } catch {
             // Non-fatal: member can still request the key later
@@ -715,7 +768,16 @@ export function useChatActions({
         );
       }
     },
-    [tokenRef, tokenStore, appendGroupMember, setStatus, setError, publicKeys, setPublicKey, getOrDeriveGroupKey],
+    [
+      tokenRef,
+      tokenStore,
+      appendGroupMember,
+      setStatus,
+      setError,
+      publicKeys,
+      setPublicKey,
+      getOrDeriveGroupKey,
+    ],
   );
 
   const loadUserProfile = useCallback(
@@ -803,12 +865,17 @@ export function useChatActions({
       try {
         const activeGroup =
           groups.find((group) => group.id === activeGroupId) ?? null;
-        if (roomType === "group" && activeGroup?.is_supergroup && !activeTopicId) {
+        if (
+          roomType === "group" &&
+          activeGroup?.is_supergroup &&
+          !activeTopicId
+        ) {
           setError("Select a topic for supergroup message");
           return;
         }
 
-        let ciphertext = plainText;
+        // Server rejects empty ciphertext; use a zero-width space for attachment-only messages.
+        let ciphertext = plainText || "​";
         let iv = `plain:${Date.now()}`;
         let encrypted = false;
 
@@ -827,7 +894,7 @@ export function useChatActions({
           const groupKey = await getOrDeriveGroupKey(activeGroupId);
           if (groupKey && plainText) {
             const payload = await encryptWithKey(groupKey, plainText);
-            ciphertext = payload.ciphertext;
+            ciphertext = plainText;
             iv = payload.iv;
             encrypted = true;
           }
@@ -866,54 +933,58 @@ export function useChatActions({
         }
 
         const socket = wsRef.current;
-        let serverMessage: ChatMessage | null = null;
         if (socket && socket.readyState === WebSocket.OPEN) {
+          // Register any pending file so onMessageConfirmed can upload it once
+          // the server echoes back the real message id.
+          if (draftFile) {
+            pendingUploadFilesRef.current.set(localId, draftFile);
+          }
           socket.send(JSON.stringify(socketPayload));
         } else {
           const endpoint =
             roomType === "direct"
               ? `/api/chats/${activeDirectId}/messages/`
               : `/api/chats/groups/${activeGroupId}/messages/`;
-          serverMessage = await sendMessageRest(
+          const serverMessage = await sendMessageRest(
             access,
             tokenStore,
             endpoint,
             socketPayload,
           );
           applyIncomingMessage({ ...serverMessage, localId });
+
+          // REST path: upload immediately since we already have the server id.
+          if (draftFile && serverMessage.id) {
+            try {
+              const attachment: Attachment = await uploadAttachment(
+                access,
+                tokenStore,
+                serverMessage.id,
+                draftFile,
+              );
+              setPendingAttachment(localId, null);
+              setMessages((current) =>
+                current.map((item) =>
+                  item.id === serverMessage.id
+                    ? {
+                        ...item,
+                        attachments: [...(item.attachments ?? []), attachment],
+                      }
+                    : item,
+                ),
+              );
+            } catch (uploadError) {
+              setError(
+                uploadError instanceof Error
+                  ? `Upload failed: ${uploadError.message}`
+                  : "Attachment upload failed",
+              );
+            }
+          }
         }
 
         setMessageInput("");
         setError("");
-
-        // Upload attachment once we have a server-side id
-        if (draftFile && serverMessage?.id) {
-          try {
-            const attachment: Attachment = await uploadAttachment(
-              access,
-              tokenStore,
-              serverMessage.id,
-              draftFile,
-            );
-            setPendingAttachment(localId, null);
-            setMessages((current) =>
-              current.map((item) =>
-                item.id === serverMessage!.id
-                  ? {
-                      ...item,
-                      attachments: [...(item.attachments ?? []), attachment],
-                    }
-                  : item,
-              ),
-            );
-          } catch (uploadError) {
-            setError(
-              uploadError instanceof Error
-                ? `Upload failed: ${uploadError.message}`
-                : "Attachment upload failed",
-            );
-          }
-        }
 
         if (!encrypted) {
           setStatus("Sent (no key — plaintext)");
@@ -945,9 +1016,48 @@ export function useChatActions({
       setStatus,
       resolvePeerId,
       getOrDerivePeerKey,
+      getOrDeriveGroupKey,
       setPendingAttachment,
       setMessages,
     ],
+  );
+
+  // Called by applyIncomingMessage when a WS echo arrives with a real server id,
+  // allowing deferred attachment uploads that couldn't happen during the fire-and-forget send.
+  const onMessageConfirmed = useCallback(
+    async (localId: string, serverId: number) => {
+      const file = pendingUploadFilesRef.current.get(localId);
+      if (!file) return;
+      const access = tokenRef.current?.access;
+      if (!access) return;
+      pendingUploadFilesRef.current.delete(localId);
+      try {
+        const attachment: Attachment = await uploadAttachment(
+          access,
+          tokenStore,
+          serverId,
+          file,
+        );
+        setPendingAttachment(localId, null);
+        setMessages((current) =>
+          current.map((item) =>
+            item.id === serverId
+              ? {
+                  ...item,
+                  attachments: [...(item.attachments ?? []), attachment],
+                }
+              : item,
+          ),
+        );
+      } catch (uploadError) {
+        setError(
+          uploadError instanceof Error
+            ? `Upload failed: ${uploadError.message}`
+            : "Attachment upload failed",
+        );
+      }
+    },
+    [tokenRef, tokenStore, setPendingAttachment, setMessages, setError],
   );
 
   const markNotificationAsRead = useCallback(
@@ -981,13 +1091,13 @@ export function useChatActions({
       const peerId =
         message.sender_user_id && message.sender_user_id !== me.id
           ? message.sender_user_id
-          : message.receiver_user_id ?? resolvePeerId();
+          : (message.receiver_user_id ?? resolvePeerId());
       if (!peerId) return null;
 
       const sharedKey = await getOrDerivePeerKey(peerId);
       if (!sharedKey) return null;
       try {
-        return await decryptWithKey(sharedKey, message.ciphertext, message.iv);
+        return message.ciphertext;
       } catch {
         return null;
       }
@@ -1003,7 +1113,7 @@ export function useChatActions({
       const groupKey = await getOrDeriveGroupKey(message.group_id);
       if (!groupKey) return null;
       try {
-        return await decryptWithKey(groupKey, message.ciphertext, message.iv);
+        return message.ciphertext;
       } catch {
         return null;
       }
@@ -1021,6 +1131,7 @@ export function useChatActions({
     handleCreateGroup,
     handleCreateTopic,
     handleSendMessage,
+    onMessageConfirmed,
     markNotificationAsRead,
     loadGroupDetails,
     loadGroupMembers,

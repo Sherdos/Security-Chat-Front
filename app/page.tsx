@@ -39,6 +39,7 @@ export default function Home() {
     handleCreateTopic,
     handleSendMessage,
     markNotificationAsRead,
+    markMessageSeen,
     loadGroupDetails,
     loadGroupMembers,
     handleAddMember,
@@ -49,6 +50,7 @@ export default function Home() {
     closeRightPanel,
     sendTyping,
     presenceRoomKey,
+    resetChatUnread,
     setupIdentityFromMnemonic,
   } = useChatPageController();
 
@@ -131,6 +133,7 @@ export default function Home() {
           handleCreateGroup={handleCreateGroup}
           handleCreateTopic={handleCreateTopic}
           markNotificationAsRead={markNotificationAsRead}
+          resetChatUnread={resetChatUnread}
         />
       </div>
 
@@ -192,6 +195,7 @@ export default function Home() {
           loadUserProfile={loadUserProfile}
           sendTyping={sendTyping}
           presenceRoomKey={presenceRoomKey}
+          markMessageSeen={markMessageSeen}
         />
       </section>
 

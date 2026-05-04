@@ -84,6 +84,11 @@ type ChatStore = {
   setTypingUser: (roomKey: string, userId: number, typing: boolean) => void;
   prependNotification: (value: Notification) => void;
   setMnemonicRequired: (value: boolean) => void;
+  setMessageIsRead: (messageId: number) => void;
+  updateChatLastMessage: (chatId: number, msg: import("../types/chat").LastMessage) => void;
+  incrementChatUnread: (chatId: number) => void;
+  resetChatUnread: (chatId: number) => void;
+  updateGroupLastMessage: (groupId: number, msg: import("../types/chat").LastMessage) => void;
 };
 
 export const useChatStore = create<ChatStore>((set) => ({
@@ -227,6 +232,36 @@ export const useChatStore = create<ChatStore>((set) => ({
       return { notifications: [value, ...state.notifications] };
     }),
   setMnemonicRequired: (value) => set({ mnemonicRequired: value }),
+  setMessageIsRead: (messageId) =>
+    set((state) => ({
+      messages: state.messages.map((m) =>
+        m.id === messageId ? { ...m, is_read: true } : m,
+      ),
+    })),
+  updateChatLastMessage: (chatId, msg) =>
+    set((state) => ({
+      directChats: state.directChats.map((c) =>
+        c.id === chatId ? { ...c, last_message: msg } : c,
+      ),
+    })),
+  incrementChatUnread: (chatId) =>
+    set((state) => ({
+      directChats: state.directChats.map((c) =>
+        c.id === chatId ? { ...c, unread_count: (c.unread_count ?? 0) + 1 } : c,
+      ),
+    })),
+  resetChatUnread: (chatId) =>
+    set((state) => ({
+      directChats: state.directChats.map((c) =>
+        c.id === chatId ? { ...c, unread_count: 0 } : c,
+      ),
+    })),
+  updateGroupLastMessage: (groupId, msg) =>
+    set((state) => ({
+      groups: state.groups.map((g) =>
+        g.id === groupId ? { ...g, last_message: msg } : g,
+      ),
+    })),
   setTypingUser: (roomKey, userId, typing) =>
     set((state) => {
       const current = state.typingUsers[roomKey] ?? [];

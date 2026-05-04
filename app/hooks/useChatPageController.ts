@@ -8,6 +8,7 @@ import { useNotificationSocket } from "./useNotificationSocket";
 import { useMessageDisplay } from "./useMessageDisplay";
 import { useTokenStore } from "./useTokenStore";
 import { useToast } from "../components/ToastProvider";
+import { markMessageRead } from "../lib/chatApi";
 import type { ChatMessage, Notification } from "../types/chat";
 
 export function useChatPageController() {
@@ -27,6 +28,11 @@ export function useChatPageController() {
     setError,
     setUserOnline,
     setTypingUser,
+    setMessageIsRead,
+    updateChatLastMessage,
+    incrementChatUnread,
+    resetChatUnread,
+    updateGroupLastMessage,
     prependNotification,
   } = useChatStore(
     useShallow((state) => ({
@@ -43,6 +49,11 @@ export function useChatPageController() {
       setError: state.setError,
       setUserOnline: state.setUserOnline,
       setTypingUser: state.setTypingUser,
+      setMessageIsRead: state.setMessageIsRead,
+      updateChatLastMessage: state.updateChatLastMessage,
+      incrementChatUnread: state.incrementChatUnread,
+      resetChatUnread: state.resetChatUnread,
+      updateGroupLastMessage: state.updateGroupLastMessage,
       prependNotification: state.prependNotification,
     })),
   );
@@ -51,6 +62,9 @@ export function useChatPageController() {
 
   const messageDecryptorRef = useRef<
     ((msg: ChatMessage) => Promise<string | null>) | null
+  >(null);
+  const onMessageConfirmedRef = useRef<
+    ((localId: string, serverId: number) => void) | null
   >(null);
 
   const {
@@ -81,6 +95,26 @@ export function useChatPageController() {
 
   const applyIncomingMessage = useCallback(
     (incoming: ChatMessage) => {
+      // Keep sidebar last_message / unread_count in sync for confirmed server messages.
+      if (typeof incoming.id === "number" && incoming.ciphertext && incoming.iv) {
+        const lastMsg = {
+          id: incoming.id,
+          ciphertext: incoming.ciphertext,
+          iv: incoming.iv,
+          sender_user_id: incoming.sender_user_id,
+          created_at: incoming.created_at,
+          is_read: incoming.is_read,
+        };
+        if (incoming.chat_id != null) {
+          updateChatLastMessage(incoming.chat_id, lastMsg);
+          if (!incoming.pending && incoming.chat_id !== activeDirectId) {
+            incrementChatUnread(incoming.chat_id);
+          }
+        } else if (incoming.group_id != null) {
+          updateGroupLastMessage(incoming.group_id, lastMsg);
+        }
+      }
+
       setMessages((current) => {
         const hasSameId =
           typeof incoming.id === "number" &&
@@ -101,8 +135,18 @@ export function useChatPageController() {
         );
 
         if (replacePendingIndex >= 0) {
+          const pending = current[replacePendingIndex];
           const copy = [...current];
-          copy[replacePendingIndex] = { ...incoming, pending: false };
+          // Preserve localId so pending attachment keys remain valid after replacement.
+          copy[replacePendingIndex] = { ...incoming, pending: false, localId: pending.localId };
+          // Fire deferred attachment upload for WebSocket-sent messages.
+          if (pending.localId && typeof incoming.id === "number") {
+            const confirmedLocalId = pending.localId;
+            const serverId = incoming.id;
+            window.setTimeout(() => {
+              onMessageConfirmedRef.current?.(confirmedLocalId, serverId);
+            }, 0);
+          }
           return copy;
         }
 
@@ -112,7 +156,7 @@ export function useChatPageController() {
     [setMessages],
   );
 
-  const { wsRef, disconnectSocket } = useChatSocket({
+  const { wsRef, disconnectSocket, sendRead } = useChatSocket({
     tokens,
     roomType,
     activeDirectId,
@@ -122,6 +166,7 @@ export function useChatPageController() {
     tokenStore,
     applyIncomingMessage,
     setTypingUser,
+    setMessageIsRead,
     setStatus,
     setError,
   });
@@ -170,6 +215,8 @@ export function useChatPageController() {
     applyIncomingMessage,
     setDecryptedText,
   });
+
+  onMessageConfirmedRef.current = actions.onMessageConfirmed;
 
   const {
     bootstrap,
@@ -253,6 +300,22 @@ export function useChatPageController() {
     };
   }, [loadMessages]);
 
+  // Called by MessagePanel when an incoming message scrolls into view.
+  const seenIdsRef = useRef<Set<number>>(new Set());
+  const markMessageSeen = useCallback(
+    (messageId: number) => {
+      if (seenIdsRef.current.has(messageId)) return;
+      seenIdsRef.current.add(messageId);
+      sendRead(messageId);
+      if (tokenRef.current?.access) {
+        void markMessageRead(tokenRef.current.access, tokenStore, messageId).catch(() => {
+          // Non-fatal — WebSocket event is the primary channel.
+        });
+      }
+    },
+    [sendRead, tokenRef, tokenStore],
+  );
+
   return {
     tokens,
     mnemonicRequired,
@@ -268,6 +331,7 @@ export function useChatPageController() {
     handleCreateTopic,
     handleSendMessage,
     markNotificationAsRead,
+    markMessageSeen,
     loadGroupDetails,
     loadGroupMembers,
     handleAddMember,
@@ -278,6 +342,7 @@ export function useChatPageController() {
     closeRightPanel,
     sendTyping,
     presenceRoomKey,
+    resetChatUnread,
     setupIdentityFromMnemonic,
   };
 }

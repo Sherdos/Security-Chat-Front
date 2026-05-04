@@ -2,7 +2,7 @@ import { useMemo, useState, useEffect, useRef, useCallback } from "react";
 import { API_BASE, searchUsers } from "../lib/chatApi";
 import { useTokenStore } from "../hooks/useTokenStore";
 import { useSidebarSlice } from "../store/chatSelectors";
-import type { User } from "../types/chat";
+import type { LastMessage, User } from "../types/chat";
 import type { Group } from "../types/chat";
 
 type ChatSidebarProps = {
@@ -10,6 +10,7 @@ type ChatSidebarProps = {
   handleCreateGroup: (event: React.FormEvent<HTMLFormElement>) => void;
   handleCreateTopic: (event: React.FormEvent<HTMLFormElement>) => void;
   markNotificationAsRead: (notificationId: number) => void;
+  resetChatUnread: (chatId: number) => void;
 };
 
 const AVATAR_GRADIENTS = [
@@ -37,6 +38,14 @@ function absoluteUrl(url: string | null | undefined): string | null {
   if (/^https?:\/\//i.test(url)) return url;
   if (url.startsWith("/")) return `${API_BASE}${url}`;
   return url;
+}
+
+function previewText(msg: LastMessage | null | undefined): string {
+  if (!msg) return "";
+  const c = msg.ciphertext ?? "";
+  if (c === "​" || c.trim() === "") return "📎 Attachment";
+  if (c.startsWith("plain:")) return c.slice(6);
+  return msg.ciphertext;
 }
 
 type AvatarProps = {
@@ -125,7 +134,11 @@ type UserSearchInputProps = {
   onSelect: (user: User | null) => void;
 };
 
-function UserSearchInput({ excludeIds, selectedUser, onSelect }: UserSearchInputProps) {
+function UserSearchInput({
+  excludeIds,
+  selectedUser,
+  onSelect,
+}: UserSearchInputProps) {
   const { tokenRef, tokenStore } = useTokenStore();
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<User[]>([]);
@@ -142,7 +155,9 @@ function UserSearchInput({ excludeIds, selectedUser, onSelect }: UserSearchInput
       setLoading(true);
       searchUsers(access, tokenStore, q)
         .then((users) => {
-          setResults(excludeIds ? users.filter((u) => !excludeIds.has(u.id)) : users);
+          setResults(
+            excludeIds ? users.filter((u) => !excludeIds.has(u.id)) : users,
+          );
         })
         .catch(() => setResults([]))
         .finally(() => setLoading(false));
@@ -177,11 +192,19 @@ function UserSearchInput({ excludeIds, selectedUser, onSelect }: UserSearchInput
           setQuery("");
         }}
       >
-        <div className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-gradient-to-br text-[10px] font-semibold text-white ${gradientFor(selectedUser.id)}`}>
+        <div
+          className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-gradient-to-br text-[10px] font-semibold text-white ${gradientFor(selectedUser.id)}`}
+        >
           {initials(selectedUser.username)}
         </div>
-        <span className="flex-1 truncate font-medium">{selectedUser.username}</span>
-        <svg viewBox="0 0 24 24" className="h-4 w-4 shrink-0 fill-current text-tg-text-muted" aria-hidden="true">
+        <span className="flex-1 truncate font-medium">
+          {selectedUser.username}
+        </span>
+        <svg
+          viewBox="0 0 24 24"
+          className="h-4 w-4 shrink-0 fill-current text-tg-text-muted"
+          aria-hidden="true"
+        >
           <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" />
         </svg>
       </button>
@@ -198,7 +221,9 @@ function UserSearchInput({ excludeIds, selectedUser, onSelect }: UserSearchInput
         autoFocus
       />
       {loading && (
-        <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-tg-text-muted">…</span>
+        <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-tg-text-muted">
+          …
+        </span>
       )}
       {results.length > 0 && (
         <ul className="absolute left-0 right-0 top-full z-50 mt-1 max-h-52 overflow-y-auto rounded-lg border border-tg-border bg-tg-bg shadow-xl">
@@ -209,12 +234,18 @@ function UserSearchInput({ excludeIds, selectedUser, onSelect }: UserSearchInput
                 className="flex w-full items-center gap-2 px-3 py-2 text-sm hover:bg-tg-panel-hover"
                 onClick={() => handleSelect(user)}
               >
-                <div className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-gradient-to-br text-[10px] font-semibold text-white ${gradientFor(user.id)}`}>
+                <div
+                  className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-gradient-to-br text-[10px] font-semibold text-white ${gradientFor(user.id)}`}
+                >
                   {initials(user.username)}
                 </div>
                 <div className="min-w-0">
                   <p className="truncate font-medium">{user.username}</p>
-                  {user.email && <p className="truncate text-xs text-tg-text-muted">{user.email}</p>}
+                  {user.email && (
+                    <p className="truncate text-xs text-tg-text-muted">
+                      {user.email}
+                    </p>
+                  )}
                 </div>
               </button>
             </li>
@@ -235,6 +266,7 @@ export function ChatSidebar({
   handleCreateGroup,
   handleCreateTopic,
   markNotificationAsRead,
+  resetChatUnread,
 }: ChatSidebarProps) {
   const [openModal, setOpenModal] = useState<
     "direct" | "group" | "topic" | null
@@ -567,6 +599,8 @@ export function ChatSidebar({
                 peerProfile?.avatar ?? peerProfile?.avatar_url,
               );
               const peerStatus = peerProfile?.status;
+              const unread = chat.unread_count ?? 0;
+              const preview = previewText(chat.last_message);
               return (
                 <button
                   key={chat.id}
@@ -574,6 +608,7 @@ export function ChatSidebar({
                   onClick={() => {
                     setRoomType("direct");
                     setActiveDirectId(chat.id);
+                    if (unread > 0) resetChatUnread(chat.id);
                   }}
                   className={`flex w-full items-center gap-3 px-3 py-2.5 text-left transition ${
                     isActive ? "bg-tg-panel-active" : "hover:bg-tg-panel-hover"
@@ -590,12 +625,34 @@ export function ChatSidebar({
                     )}
                   </div>
                   <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-semibold">{peerName}</p>
-                    <p className="truncate text-xs text-tg-text-secondary">
-                      {peerId != null && onlineUsers[peerId]
-                        ? "online"
-                        : (peerStatus ?? "Direct message")}
-                    </p>
+                    <div className="flex items-baseline justify-between gap-1">
+                      <p className="truncate text-sm font-semibold">
+                        {peerName}
+                      </p>
+                      {chat.last_message?.created_at && (
+                        <span className="shrink-0 text-[10px] text-tg-text-muted">
+                          {new Date(
+                            chat.last_message.created_at,
+                          ).toLocaleTimeString([], {
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          })}
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex items-center justify-between gap-1">
+                      <p className="truncate text-xs text-tg-text-secondary">
+                        {preview ||
+                          (peerId != null && onlineUsers[peerId]
+                            ? "online"
+                            : (peerStatus ?? "Direct message"))}
+                      </p>
+                      {unread > 0 && (
+                        <span className="ml-1 flex h-4.5 min-w-[18px] shrink-0 items-center justify-center rounded-full bg-tg-accent px-1 text-[10px] font-bold text-white">
+                          {unread > 99 ? "99+" : unread}
+                        </span>
+                      )}
+                    </div>
                   </div>
                 </button>
               );
@@ -634,11 +691,24 @@ export function ChatSidebar({
                       imageUrl={group.avatar}
                     />
                     <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-semibold">
-                        {group.name}
-                      </p>
+                      <div className="flex items-baseline justify-between gap-1">
+                        <p className="truncate text-sm font-semibold">
+                          {group.name}
+                        </p>
+                        {group.last_message?.created_at && (
+                          <span className="shrink-0 text-[10px] text-tg-text-muted">
+                            {new Date(
+                              group.last_message.created_at,
+                            ).toLocaleTimeString([], {
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            })}
+                          </span>
+                        )}
+                      </div>
                       <p className="truncate text-xs text-tg-text-secondary">
-                        {group.is_supergroup ? "Supergroup" : "Group"}
+                        {previewText(group.last_message) ||
+                          (group.is_supergroup ? "Supergroup" : "Group")}
                       </p>
                     </div>
                   </button>

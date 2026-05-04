@@ -20,9 +20,9 @@ export function AuthView({ apiBase, handleAuthSubmit }: AuthViewProps) {
 
   return (
     <main className="flex min-h-screen w-full items-center justify-center bg-tg-bg-main px-4 py-10">
-      <div className="w-full max-w-sm rounded-2xl bg-tg-panel p-8 shadow-2xl shadow-black/40 ring-1 ring-white/5">
-        <div className="mb-6 flex flex-col items-center">
-          <div className="mb-4 flex h-20 w-20 items-center justify-center rounded-full bg-gradient-to-br from-tg-accent to-[#5eead4] text-3xl font-bold text-white shadow-lg shadow-tg-accent/30">
+      <div suppressHydrationWarning className="w-full max-w-sm rounded-2xl bg-tg-panel p-8 shadow-2xl shadow-black/40 ring-1 ring-white/5">
+        <div suppressHydrationWarning className="mb-6 flex flex-col items-center">
+          <div suppressHydrationWarning className="mb-4 flex h-20 w-20 items-center justify-center rounded-full bg-gradient-to-br from-tg-accent to-[#5eead4] text-3xl font-bold text-white shadow-lg shadow-tg-accent/30">
             OC
           </div>
           <h1 className="text-2xl font-semibold tracking-tight">
@@ -33,7 +33,7 @@ export function AuthView({ apiBase, handleAuthSubmit }: AuthViewProps) {
           </p>
         </div>
 
-        <div className="mb-5 flex rounded-full bg-tg-bg p-1">
+        <div suppressHydrationWarning className="mb-5 flex rounded-full bg-tg-bg p-1">
           <button
             type="button"
             className={`flex-1 rounded-full px-3 py-1.5 text-sm font-medium transition ${
